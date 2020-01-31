@@ -2,6 +2,8 @@ import functools
 import inspect
 from pydoc import Helper
 
+import datetime
+import time
 import requests
 import json
 import urllib.parse
@@ -11,6 +13,7 @@ import os
 
 from typing import Optional, Callable, Type, Union
 
+_REQUEST_LIMIT = 100
 
 DEFAULT_README_PATH: str = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, 'README.md'))
 
@@ -37,7 +40,7 @@ class CompaniesHouseAPIBase:
         else:
             return obj
 
-    def get(self, query: str, flatten: bool=False, follow_links: bool=False) -> Optional[dict]:
+    def get(self, query: str, flatten: bool = False, follow_links: bool = False) -> Optional[dict]:
         """
         Run a GET query against the Companies' House API
         :param query: the query, e.g. "company/09117429"
@@ -46,7 +49,15 @@ class CompaniesHouseAPIBase:
         """
         url: str = self._base_url.format(query)
         response = requests.request('GET', url, auth=(self._api_key, ''))
+        print(response.headers)
+        if response.headers.get("X-Ratelimit-Remain"):
+            if int(response.headers.get("X-Ratelimit-Remain")) < _REQUEST_LIMIT:
+                reset_time = datetime.datetime.fromtimestamp(int(response.headers.get("X-Ratelimit-Reset")))
+                print("Ratelimit is close to expire. Need to wait " + str(reset_time))
+                while datetime.datetime.now() < reset_time:
+                    time.sleep(10)
         if response.status_code != 200:
+
             # don't raise if not found, just return None
             if response.status_code == 404:
                 logging.warning(f'404 not found: {url}')
@@ -61,8 +72,7 @@ class CompaniesHouseAPIBase:
         return result
 
 
-def flatten_dict(d: dict, full_name: str=None, sep: str='__') -> Union[dict, list]:
-
+def flatten_dict(d: dict, full_name: str = None, sep: str = '__') -> Union[dict, list]:
     if isinstance(d, dict):
         flat = {}
         for key, val in d.items():
@@ -87,7 +97,7 @@ def _make_function(method_name: str, http_request_str: str, description: str) ->
     fn_name = '_'.join(map(lambda s: str.replace(s, '-', '_'), filter(lambda x: '{' not in x, base_parts)))
     params = list(map(lambda s: str.strip(s, '{}'), filter(lambda x: '{' in x, base_parts)))
 
-    def fn(self, flatten: bool=False, follow_links: bool=False, **kwargs) -> Optional[dict]:
+    def fn(self, flatten: bool = False, follow_links: bool = False, **kwargs) -> Optional[dict]:
         arg_str = '&'.join([f'{kw}={urllib.parse.quote(arg)}'
                             for kw, arg in kwargs.items() if kw not in params])
 
@@ -149,7 +159,7 @@ class SimpleRecorder:
         self.text += text
 
 
-def _update_readme(api: type, path: str=DEFAULT_README_PATH):
+def _update_readme(api: type, path: str = DEFAULT_README_PATH):
     r = SimpleRecorder()
     h = Helper(output=r)
     h.help(api)
@@ -177,8 +187,8 @@ help(CompaniesHouseAPI)
 ```
 {r.text}
 ```
-When the API has changed, 
-run `update.py` to re-download the API definition. 
+When the API has changed,
+run `update.py` to re-download the API definition.
 When running the API, this documentation is updated automatically.
 '''
     with open(path, 'w') as f:
@@ -186,9 +196,8 @@ When running the API, this documentation is updated automatically.
 
 
 def generate_api(
-        path: str=os.path.join(os.path.dirname(__file__), 'definition.csv'), force_update: bool=False
+        path: str = os.path.join(os.path.dirname(__file__), 'definition.csv'), force_update: bool = False
 ) -> Type[CompaniesHouseAPIBase]:
-
     if not os.path.isfile(path) or force_update:
         from companies_house.update import update
         update(path=path)
@@ -202,7 +211,7 @@ def generate_api(
 
     api_class: Type[CompaniesHouseAPIBase] = \
         type('CompaniesHouseAPI', (CompaniesHouseAPIBase,), functions)
-    
+
     _update_readme(api_class)
     return api_class
 
