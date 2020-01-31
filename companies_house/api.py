@@ -49,7 +49,6 @@ class CompaniesHouseAPIBase:
         """
         url: str = self._base_url.format(query)
         response = requests.request('GET', url, auth=(self._api_key, ''))
-        print(response.headers)
         if response.headers.get("X-Ratelimit-Remain"):
             if int(response.headers.get("X-Ratelimit-Remain")) < _REQUEST_LIMIT:
                 reset_time = datetime.datetime.fromtimestamp(int(response.headers.get("X-Ratelimit-Reset")))
