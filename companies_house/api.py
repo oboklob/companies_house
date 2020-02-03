@@ -13,7 +13,6 @@ import os
 
 from typing import Optional, Callable, Type, Union
 
-_REQUEST_LIMIT = 100
 
 DEFAULT_README_PATH: str = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, 'README.md'))
 
@@ -22,8 +21,9 @@ class CompaniesHouseAPIBase:
     _base_url = "https://api.companieshouse.gov.uk/{}"
     _api_key: str
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str,ratelimit=50) -> None:
         self._api_key = api_key
+        self.ratelimit = ratelimit
 
     def _follow_links(self, obj: Union[dict, list]) -> Union[dict, list]:
         if isinstance(obj, dict) and 'links' in obj:
@@ -50,7 +50,7 @@ class CompaniesHouseAPIBase:
         url: str = self._base_url.format(query)
         response = requests.request('GET', url, auth=(self._api_key, ''))
         if response.headers.get("X-Ratelimit-Remain"):
-            if int(response.headers.get("X-Ratelimit-Remain")) < _REQUEST_LIMIT:
+            if int(response.headers.get("X-Ratelimit-Remain")) < self.ratelimit:
                 reset_time = datetime.datetime.fromtimestamp(int(response.headers.get("X-Ratelimit-Reset")))
                 print("Ratelimit is close to expire. Need to wait " + str(reset_time))
                 while datetime.datetime.now() < reset_time:
