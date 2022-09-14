@@ -2,6 +2,8 @@ import functools
 import inspect
 from pydoc import Helper
 
+import datetime
+import time
 import requests
 import json
 import urllib.parse
@@ -18,8 +20,9 @@ class CompaniesHouseAPIBase:
     _base_url = "https://api.companieshouse.gov.uk/{}"
     _api_key: str
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str,ratelimit=50) -> None:
         self._api_key = api_key
+        self.ratelimit = ratelimit
 
     def _follow_links(self, obj: Union[dict, list]) -> Union[dict, list]:
         if isinstance(obj, dict) and 'links' in obj:
@@ -36,7 +39,7 @@ class CompaniesHouseAPIBase:
         else:
             return obj
 
-    def get(self, query: str, flatten: bool=False, follow_links: bool=False) -> Optional[dict]:
+    def get(self, query: str, flatten: bool = False, follow_links: bool = False) -> Optional[dict]:
         """
         Run a GET query against the Companies' House API
         :param query: the query, e.g. "company/09117429"
@@ -45,7 +48,14 @@ class CompaniesHouseAPIBase:
         """
         url: str = self._base_url.format(query)
         response = requests.request('GET', url, auth=(self._api_key, ''))
+        if response.headers.get("X-Ratelimit-Remain"):
+            if int(response.headers.get("X-Ratelimit-Remain")) < self.ratelimit:
+                reset_time = datetime.datetime.fromtimestamp(int(response.headers.get("X-Ratelimit-Reset")))
+                print("Ratelimit is close to expire. Need to wait " + str(reset_time))
+                while datetime.datetime.now() < reset_time:
+                    time.sleep(10)
         if response.status_code != 200:
+
             # don't raise if not found, just return None
             if response.status_code == 404:
                 logging.warning(f'404 not found: {url}')
@@ -60,8 +70,7 @@ class CompaniesHouseAPIBase:
         return result
 
 
-def flatten_dict(d: dict, full_name: str=None, sep: str='__') -> Union[dict, list]:
-
+def flatten_dict(d: dict, full_name: str = None, sep: str = '__') -> Union[dict, list]:
     if isinstance(d, dict):
         flat = {}
         for key, val in d.items():
@@ -86,7 +95,7 @@ def _make_function(method_name: str, http_request_str: str, description: str) ->
     fn_name = '_'.join(map(lambda s: str.replace(s, '-', '_'), filter(lambda x: '{' not in x, base_parts)))
     params = list(map(lambda s: str.strip(s, '{}'), filter(lambda x: '{' in x, base_parts)))
 
-    def fn(self, flatten: bool=False, follow_links: bool=False, **kwargs) -> Optional[dict]:
+    def fn(self, flatten: bool = False, follow_links: bool = False, **kwargs) -> Optional[dict]:
         arg_str = '&'.join([f'{kw}={urllib.parse.quote(arg)}'
                             for kw, arg in kwargs.items() if kw not in params])
 
@@ -151,8 +160,8 @@ def generate_api(path: str, force_update: bool=False) -> Type[CompaniesHouseAPIB
             functions[fn.__name__] = fn
 
     api_class: Type[CompaniesHouseAPIBase] = type(
-        'CompaniesHouseAPI', 
-        (CompaniesHouseAPIBase,), 
+        'CompaniesHouseAPI',
+        (CompaniesHouseAPIBase,),
         functions
     )
 
